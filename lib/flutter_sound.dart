@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:core';
 import 'dart:convert';
+import 'dart:core';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_sound/android_encoder.dart';
 import 'package:flutter_sound/ios_quality.dart';
@@ -10,6 +11,7 @@ class FlutterSound {
   static StreamController<RecordStatus> _recorderController;
   static StreamController<double> _dbPeakController;
   static StreamController<PlayStatus> _playerController;
+
   /// Value ranges from 0 to 120
   Stream<double> get onRecorderDbPeakChanged => _dbPeakController.stream;
   Stream<RecordStatus> get onRecorderStateChanged => _recorderController.stream;
@@ -169,6 +171,22 @@ class FlutterSound {
     return result;
   }
 
+  Future<String> preparePlayer(String uri) async {
+    try {
+      String result =
+          await _channel.invokeMethod('preparePlayer', <String, dynamic>{
+        'path': uri,
+      });
+      print('result: $result');
+
+      _setPlayerCallback();
+
+      return result;
+    } catch (err) {
+      throw Exception(err);
+    }
+  }
+
   Future<String> startPlayer(String uri) async {
     try {
       String result =
@@ -226,8 +244,7 @@ class FlutterSound {
       return result;
     }
 
-    result = await _channel
-        .invokeMethod('setVolume', <String, dynamic>{
+    result = await _channel.invokeMethod('setVolume', <String, dynamic>{
       'volume': volume,
     });
     return result;
