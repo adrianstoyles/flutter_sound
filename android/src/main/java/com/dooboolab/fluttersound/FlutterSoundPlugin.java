@@ -76,6 +76,9 @@ public class FlutterSoundPlugin implements MethodCallHandler, PluginRegistry.Req
       case "resumeRecorder":
         taskScheduler.submit(() -> resumeRecorder(result));
         break;
+      case "preparePlayer":
+        this.preparePlayer(path, result);
+        break;
       case "startPlayer":
         this.startPlayer(path, result);
         break;
@@ -285,26 +288,12 @@ public class FlutterSoundPlugin implements MethodCallHandler, PluginRegistry.Req
   }
 
   @Override
-  public void startPlayer(final String path, final Result result) {
-    if (this.model.getMediaPlayer() != null) {
-      Boolean isPaused = !this.model.getMediaPlayer().isPlaying()
-          && this.model.getMediaPlayer().getCurrentPosition() > 1;
-
-      if (isPaused) {
-        this.model.getMediaPlayer().start();
-        result.success("player resumed.");
-        return;
-      }
-
-      Log.e(TAG, "Player is already running. Stop it first.");
-      result.success("player is already running.");
-      return;
-    } else {
-      this.model.setMediaPlayer(new MediaPlayer());
-    }
-    mTimer = new Timer();
-
+  public void preparePlayer(final String path, final Result result) {
     try {
+      this.model.setMediaPlayer(new MediaPlayer());
+
+      mTimer = new Timer();
+
       if (path == null) {
         this.model.getMediaPlayer().setDataSource(AudioModel.DEFAULT_FILE_LOCATION);
       } else {
@@ -312,39 +301,51 @@ public class FlutterSoundPlugin implements MethodCallHandler, PluginRegistry.Req
       }
 
       this.model.getMediaPlayer().setOnPreparedListener(mp -> {
-        Log.d(TAG, "mediaPlayer prepared and start");
-        mp.start();
+        Log.d(TAG, "mediaPlayer prepared");
 
-        /*
-         * Set timer task to send event to RN.
-         */
-        TimerTask mTask = new TimerTask() {
-          @Override
-          public void run() {
-            // long time = mp.getCurrentPosition();
-            // DateFormat format = new SimpleDateFormat("mm:ss:SS", Locale.US);
-            // final String displayTime = format.format(time);
-            try {
-              JSONObject json = new JSONObject();
-              json.put("duration", String.valueOf(mp.getDuration()));
-              json.put("current_position", String.valueOf(mp.getCurrentPosition()));
-              mainHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                  channel.invokeMethod("updateProgress", json.toString());
-                }
-              });
-
-            } catch (JSONException je) {
-              Log.d(TAG, "Json Exception: " + je.toString());
-            }
-          }
-        };
-
-        mTimer.schedule(mTask, 0, model.subsDurationMillis);
         String resolvedPath = path == null ? AudioModel.DEFAULT_FILE_LOCATION : path;
         result.success((resolvedPath));
       });
+
+      this.model.getMediaPlayer().prepare();
+    } catch (Exception e) {
+      Log.e(TAG, "startPlayer() exception");
+      result.error(ERR_UNKNOWN, ERR_UNKNOWN, e.getMessage());
+    }
+  }
+
+  @Override
+  public void startPlayer(final String path, final Result result) {
+    try {
+
+      /*
+       * Set timer task to send event to RN.
+       */
+      TimerTask mTask = new TimerTask() {
+
+        @Override
+        public void run() {
+          MediaPlayer mp = model.getMediaPlayer();
+          // long time = mp.getCurrentPosition();
+          // DateFormat format = new SimpleDateFormat("mm:ss:SS", Locale.US);
+          // final String displayTime = format.format(time);
+          try {
+            JSONObject json = new JSONObject();
+            json.put("duration", String.valueOf(mp.getDuration()));
+            json.put("current_position", String.valueOf(mp.getCurrentPosition()));
+            mainHandler.post(new Runnable() {
+              @Override
+              public void run() {
+                channel.invokeMethod("updateProgress", json.toString());
+              }
+            });
+
+          } catch (JSONException je) {
+            Log.d(TAG, "Json Exception: " + je.toString());
+          }
+        }
+      };
+
       /*
        * Detect when finish playing.
        */
@@ -362,15 +363,19 @@ public class FlutterSoundPlugin implements MethodCallHandler, PluginRegistry.Req
           Log.d(TAG, "Json Exception: " + je.toString());
         }
         mTimer.cancel();
-        if(mp.isPlaying())
-        {
+        if (mp.isPlaying()) {
           mp.stop();
         }
         mp.reset();
         mp.release();
         model.setMediaPlayer(null);
       });
-      this.model.getMediaPlayer().prepare();
+
+      mTimer.schedule(mTask, 0, model.subsDurationMillis);
+
+      result.success("Playing");
+
+      this.model.getMediaPlayer().start();
     } catch (Exception e) {
       Log.e(TAG, "startPlayer() exception");
       result.error(ERR_UNKNOWN, ERR_UNKNOWN, e.getMessage());
