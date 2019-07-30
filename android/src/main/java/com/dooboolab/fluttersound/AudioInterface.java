@@ -7,6 +7,7 @@ interface AudioInterface {
   void stopRecorder(MethodChannel.Result result);
   void pauseRecorder(MethodChannel.Result result);
   void resumeRecorder(MethodChannel.Result result);
+  void preparePlayer(String path, MethodChannel.Result result);
   void startPlayer(String path, MethodChannel.Result result);
   void stopPlayer(MethodChannel.Result result);
   void pausePlayer(MethodChannel.Result result);

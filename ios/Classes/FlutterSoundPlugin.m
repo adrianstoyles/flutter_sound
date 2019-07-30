@@ -136,6 +136,9 @@ NSString* status = [NSString stringWithFormat:@"{\"current_position\": \"%@\"}",
       [self pauseRecorder:result];
   } else if ([@"resumeRecorder" isEqualToString:call.method]) {
       [self resumeRecorder:result];
+  } else if ([@"preparePlayer" isEqualToString:call.method]) {
+      NSString* path = (NSString*)call.arguments[@"path"];
+      [self preparePlayer:path result:result];
   } else if ([@"startPlayer" isEqualToString:call.method]) {
       NSString* path = (NSString*)call.arguments[@"path"];
       [self startPlayer:path result:result];
@@ -259,61 +262,66 @@ NSString* status = [NSString stringWithFormat:@"{\"current_position\": \"%@\"}",
   result(filePath);
 }
 
-- (void)startPlayer:(NSString*)path result: (FlutterResult)result {
-  bool isRemote = false;
-  if ([path class] == [NSNull class]) {
-    audioFileURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingString:@"sound.m4a"]];
-  } else {
-    NSURL *remoteUrl = [NSURL URLWithString:path];
-    if(remoteUrl && remoteUrl.scheme && remoteUrl.host){
-        audioFileURL = remoteUrl;
-        isRemote = true;
+- (void)preparePlayer:(NSString*)path result: (FlutterResult)result {
+    bool isRemote = false;
+    if ([path class] == [NSNull class]) {
+        audioFileURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingString:@"sound.m4a"]];
     } else {
-        audioFileURL = [NSURL fileURLWithPath:path];
+        NSURL *remoteUrl = [NSURL URLWithString:path];
+        if(remoteUrl && remoteUrl.scheme && remoteUrl.host){
+            audioFileURL = remoteUrl;
+            isRemote = true;
+        } else {
+            audioFileURL = [NSURL fileURLWithPath:path];
+        }
     }
-  }
 
-  if (isRemote) {
-    NSURLSessionDataTask *downloadTask = [[NSURLSession sharedSession]
-        dataTaskWithURL:audioFileURL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    if (isRemote) {
+        NSURLSessionDataTask *downloadTask = [[NSURLSession sharedSession] dataTaskWithURL:audioFileURL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
             // NSData *data = [NSData dataWithContentsOfURL:audioFileURL];
-            
-        // We must create a new Audio Player instance to be able to play a different Url
-        self->audioPlayer = [[AVAudioPlayer alloc] initWithData:data error:nil];
-        self->audioPlayer.delegate = self;
+
+            // We must create a new Audio Player instance to be able to play a different Url
+            self->audioPlayer = [[AVAudioPlayer alloc] initWithData:data error:nil];
+            self->audioPlayer.delegate = self;
+
+            // Able to play in silent mode
+            [[AVAudioSession sharedInstance] setCategory: AVAudioSessionCategoryPlayback
+                                                   error: nil];
+            // Able to play in background
+            [[AVAudioSession sharedInstance] setActive: YES error: nil];
+            [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
+
+            NSString *filePath = self->audioFileURL.absoluteString;
+            result(filePath);
+        }];
+
+        [downloadTask resume];
+    } else {
+        // if (!audioPlayer) { // Fix sound distoring when playing recorded audio again.
+        audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:audioFileURL error:nil];
+        audioPlayer.delegate = self;
+        // }
 
         // Able to play in silent mode
-        [[AVAudioSession sharedInstance]
-            setCategory: AVAudioSessionCategoryPlayback
-            error: nil];
-        // Able to play in background
-        [[AVAudioSession sharedInstance] setActive: YES error: nil];
-        [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
+        [[AVAudioSession sharedInstance] setCategory: AVAudioSessionCategoryPlayback
+                                               error: nil];
 
-        [self->audioPlayer play];
-        [self startTimer];
-        NSString *filePath = self->audioFileURL.absoluteString;
+        NSString *filePath = audioFileURL.absoluteString;
         result(filePath);
-    }];
+    }
+}
 
-    [downloadTask resume];
-  } else {
-    // if (!audioPlayer) { // Fix sound distoring when playing recorded audio again.
-      audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:audioFileURL error:nil];
-      audioPlayer.delegate = self;
-    // }
-
-    // Able to play in silent mode
-    [[AVAudioSession sharedInstance]
-        setCategory: AVAudioSessionCategoryPlayback
-        error: nil];
-
-    [audioPlayer play];
-    [self startTimer];
-
-    NSString *filePath = audioFileURL.absoluteString;
-    result(filePath);
-  }
+- (void)startPlayer:(NSString*)path result:(FlutterResult)result {
+    if (audioPlayer) {
+        [audioPlayer play];
+        [self startTimer];
+        result(audioPlayer.url.absoluteString);
+    } else {
+        [self preparePlayer:path result:result];
+        [audioPlayer play];
+        [self startTimer];
+        result(audioPlayer.url.absoluteString);
+    }
 }
 
 - (void)stopPlayer:(FlutterResult)result {
